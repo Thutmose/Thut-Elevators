@@ -10,11 +10,6 @@ public class ThutBlocks extends Blocks
 	//Thut WorldGen Blocks
 	public static Block dust;
 	public static Block inactiveDust;
-	public static Block misc;
-	public static Block worldGen;
-	public static Block volcano;
-	public static Block warmCO2;
-	public static Block coolCO2;
 	
 	//Thut Concrete Blocks
 	public static Block liquidConcrete;

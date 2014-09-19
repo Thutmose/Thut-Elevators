@@ -157,72 +157,6 @@ public class PacketPipeline
         };
         return stats;
     }
-	
-    @SideOnly(Side.CLIENT)
-	static void processLiftPacket(ByteBuf dat)
-	{
-		int id = dat.readInt();
-		int command = dat.readInt();
-		int command2 = -1;
-		if(command==1||command==0)
-			 command2 = dat.readInt();
-		EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-		World world = Minecraft.getMinecraft().theWorld;
-		Entity e = world.getEntityByID(id);
-			
-		if(e instanceof EntityLift)
-		{
-			if(command == 1 || command == 0)
-				((EntityLift)e).toMoveY = command!=0;
-			if((command == 1 || command == 0)&&(command2 == 1 || command2 == 0))
-				((EntityLift)e).up = command2!=0;
-			if(command == 3)
-			{
-				((EntityLift)e).callClient(dat.readDouble());
-				((EntityLift)e).setDestinationFloor(dat.readInt());
-			}
-			if(command == 4)
-			{
-				((EntityLift)e).size = dat.readDouble();
-			}
-			
-		}
-		
-		if(command == 2)
-		{
-			int x = dat.readInt();
-			int y = dat.readInt();
-			int z = dat.readInt();
-			TileEntity te = player.worldObj.getTileEntity(x, y, z);
-			if(te instanceof TileEntityLiftAccess)
-			{
-				((TileEntityLiftAccess) te).lift = EntityLift.lifts.get(id);
-			}
-		}
-	}
-	
-	public static ClientPacket getLiftPacket(Entity e, int command, double value, int value2)
-	{
-		int id = e.getEntityId();
-		
-	 	ByteArrayOutputStream bos = new ByteArrayOutputStream(16);
-	 	DataOutputStream dos = new DataOutputStream(bos);
-		
-		try
-       {
-			dos.writeByte(0);
-			dos.writeInt(id);
-			dos.writeInt(command);
-			dos.writeDouble(value);
-			dos.writeInt(value2);
-       }
-       catch (IOException ex)
-       {
-       	ex.printStackTrace();
-       }
-		
-		return new ClientPacket(bos.toByteArray());
-	}
     
     public static class ClientPacket implements IMessage
     {
@@ -278,7 +212,7 @@ public class PacketPipeline
 				byte mess = buffer.readByte();
 				if(mess == 0)
 				{
-					processLiftPacket(buffer);
+					
 				}
 				return null;
 			}

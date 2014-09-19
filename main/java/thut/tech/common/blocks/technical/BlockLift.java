@@ -18,6 +18,7 @@ import java.util.List;
 
 
 
+
 import thut.api.ThutBlocks;
 import thut.api.blocks.IMetaBlock;
 import thut.tech.common.TechCore;
@@ -34,6 +35,7 @@ import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
+import net.minecraft.init.Items;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
@@ -55,6 +57,7 @@ public class BlockLift extends Block implements ITileEntityProvider, IMetaBlock/
 		setHardness(3.5f);
 		setCreativeTab(TechCore.tabThut);
 		this.setBlockName("Block");
+		this.setTickRandomly(true);
 		ThutBlocks.lift = this;
 	}
 	
@@ -63,19 +66,6 @@ public class BlockLift extends Block implements ITileEntityProvider, IMetaBlock/
      */
     public int onBlockPlaced(World worldObj, int x, int y, int z, int side, float hitX, float hitY, float hitZ, int meta)
     {
-		 if(meta==1)
-		 {
-			 TileEntity t = worldObj.getTileEntity(x, y, z);
-			 if(t instanceof TileEntityLiftAccess)
-			 {
-				 TileEntityLiftAccess te = (TileEntityLiftAccess)worldObj.getTileEntity(x, y, z);
-				 if(te!=null)
-				 {
-					ForgeDirection fside =  ForgeDirection.getOrientation(side);
-					te.setSide(fside.getOpposite().ordinal());
-				 }
-			 }
-		 }
         return meta;
     }
 	
@@ -108,23 +98,40 @@ public class BlockLift extends Block implements ITileEntityProvider, IMetaBlock/
     {
 		 int meta = worldObj.getBlockMetadata(x, y, z);
 		 
+		 if(worldObj.isRemote)
+		 {
+			 return true;
+		 }
 		 if(meta==1)
 		 {
 			 TileEntityLiftAccess te = (TileEntityLiftAccess)worldObj.getTileEntity(x, y, z);
-			 if(te!=null&&side!=te.side)
+			 if(te!=null&&(!te.isSideOn(side)||
+					 (player.getHeldItem()!=null && player.getHeldItem().getItem() == Items.stick)))
 			 {
-				 if(player.getHeldItem()!=null&&
+				 if(player.getHeldItem()!=null&&(
 						 player.getHeldItem().getItem().getUnlocalizedName().toLowerCase().contains("wrench")
 						 ||player.getHeldItem().getItem().getUnlocalizedName().toLowerCase().contains("screwdriver")
 						 ||player.getHeldItem().getItem() instanceof ItemLinker
-						 )
+						 ||player.getHeldItem().getItem() == Items.stick
+						 ))
 					 {
-						 te.setSide(side);
+						 te.setSide(side, !te.isSideOn(side));
+						 return true;
+					 }
+			 }
+			 else if(te!=null && te.isSideOn(side))
+			 {
+				 if(player.getHeldItem()!=null&&(
+						 player.getHeldItem().getItem().getUnlocalizedName().toLowerCase().contains("wrench")
+						 ||player.getHeldItem().getItem().getUnlocalizedName().toLowerCase().contains("screwdriver")
+						 ||player.getHeldItem().getItem() instanceof ItemLinker
+						 ))
+					 {
+						 te.setSidePage(side, (te.getSidePage(side) + 1)%4);
 						 return true;
 					 }
 			 }
 		 }
-		 worldObj.markBlockForUpdate(x, y, z);
 		 boolean ret = false;
 		 int id;
 		 boolean rails = false;
@@ -156,10 +163,9 @@ public class BlockLift extends Block implements ITileEntityProvider, IMetaBlock/
 				player.addChatMessage(new ChatComponentText("complete base not found"));
 			}
 		 }
-		 else if(meta == 1)
+		 else if(meta == 1 && !worldObj.isRemote)
 		 {
 			 TileEntityLiftAccess te = (TileEntityLiftAccess)worldObj.getTileEntity(x, y, z);
-
 			 if(te!=null)
 				 te.doButtonClick(side, hitX, hitY, hitZ);
 			 ret = true;
@@ -274,12 +280,6 @@ public class BlockLift extends Block implements ITileEntityProvider, IMetaBlock/
 		 if(meta==0)
 		 {
 			 return blockIcon;
-		 }
-		 TileEntityLiftAccess te = (TileEntityLiftAccess)par1IBlockAccess.getTileEntity(x, y, z);
-		 if(te!=null)
-		 {
-			 if(par5 == te.side)//&&te.floor>=0&&te.floor<=16
-				 return icon2;
 		 }
 		 return this.icon;
 	    }
@@ -399,15 +399,6 @@ public class BlockLift extends Block implements ITileEntityProvider, IMetaBlock/
      */
     public boolean rotateBlock(World worldObj, int x, int y, int z, ForgeDirection axis)
     {
-    	if(axis==ForgeDirection.DOWN||axis==ForgeDirection.UP)
-    	{
-    		return false;
-    	}
-    	if(worldObj.getTileEntity(x, y, z)!=null && worldObj.getTileEntity(x, y, z) instanceof TileEntityLiftAccess)
-    	{
-    		TileEntityLiftAccess te = (TileEntityLiftAccess)worldObj.getTileEntity(x, y, z);
-    		te.setSide(axis.ordinal());
-    	}
         return RotationHelper.rotateVanillaBlock(this, worldObj, x, y, z, axis);
     }
 
@@ -421,93 +412,4 @@ public class BlockLift extends Block implements ITileEntityProvider, IMetaBlock/
 		return stack.getItemDamage()==1?"tile.control":"tile.lift";
 	}
 
-	///////////////////////////////////////////////MFR Rednet Compatibility stuff///////////////////////////////////////////////////
-//	@Override
-//	public RedNetConnectionType getConnectionType(World world, int x, int y,
-//			int z, ForgeDirection side) {
-//		
-//		TileEntityLiftAccess te = (TileEntityLiftAccess)world.getTileEntity(x, y, z);
-//		int meta = world.getBlockMetadata(x, y, z);
-//		if(meta==1&&te!=null)
-//		{
-//			ForgeDirection teSide = ForgeDirection.getOrientation(te.side);
-//			if(teSide!=side)
-//			{
-//				return RedNetConnectionType.PlateAll;
-//			}
-//		}
-//		
-//		return RedNetConnectionType.None;
-//	}
-//
-//	@Override
-//	public int[] getOutputValues(World world, int x, int y, int z,
-//			ForgeDirection side) {
-//		// TODO Auto-generated method stub
-//		return null;
-//	}
-//
-//	@Override
-//	public int getOutputValue(World world, int x, int y, int z,
-//			ForgeDirection side, int subnet) {
-//		// TODO Auto-generated method stub
-//		return 0;
-//	}
-//
-//	@Override
-//	public void onInputsChanged(World world, int x, int y, int z,
-//			ForgeDirection side, int[] inputValues) {
-//		TileEntityLiftAccess te = (TileEntityLiftAccess)world.getTileEntity(x, y, z);
-//		int meta = world.getBlockMetadata(x, y, z);
-//		if(meta==1&&te!=null)
-//		{
-//			ForgeDirection teSide = ForgeDirection.getOrientation(te.side);
-//			
-//			boolean hex = inputValues[2] == 13;
-//			boolean binary = (inputValues[0]==13||inputValues[1]==13)&&!hex;
-//			
-//			if(hex)
-//			{
-//				int yPos = inputValues[0]+16*inputValues[1];
-//				te.callYValue(yPos);
-//				return;
-//			}
-//			
-//			if(binary)
-//			{
-//				int yPos = 0;
-//				for(int i = 0; i<inputValues.length; i++)
-//				{
-//					yPos += inputValues[i]==0?0:Math.pow(2,i);
-//				}
-//				te.callYValue(yPos);
-//				return;
-//			}
-//			if(!(binary||hex))
-//			{
-//				for(int i = 0; i<inputValues.length; i++)
-//				{
-//					if(inputValues[i]==15)
-//					{
-//						te.buttonPress(i+1);
-//						break;
-//					}
-//					if(inputValues[i]==14)
-//					{
-//						te.buttonPress(te.floor);
-//						break;
-//					}
-//				}
-//				return;
-//			}
-//			
-//		}
-//	}
-//
-//	@Override
-//	public void onInputChanged(World world, int x, int y, int z,
-//			ForgeDirection side, int inputValue) {
-//		// TODO Auto-generated method stub
-//		
-//	}
 }

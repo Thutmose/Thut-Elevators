@@ -63,6 +63,7 @@ public class TechCore
     public void load(FMLInitializationEvent evt)
     {
 		proxy.initClient();
+		
     }
 	
 	@EventHandler

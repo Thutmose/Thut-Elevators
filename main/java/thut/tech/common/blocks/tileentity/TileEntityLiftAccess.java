@@ -6,6 +6,7 @@ import static net.minecraftforge.common.util.ForgeDirection.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.UUID;
 import java.util.Vector;
 
 import javax.print.attribute.standard.SheetCollate;
@@ -31,6 +32,13 @@ import javax.print.attribute.standard.SheetCollate;
 
 
 
+
+
+
+
+
+import cpw.mods.fml.common.FMLCommonHandler;
+import scala.actors.threadpool.Arrays;
 import thut.api.ThutBlocks;
 import thut.api.maths.Vector3;
 import thut.tech.common.entity.EntityLift;
@@ -63,7 +71,6 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 	Vector3 here;
 	
 	public Vector3 root = new Vector3();
-//	public IElectricityStorage source;
 	public TileEntityLiftAccess rootNode;
 	public Vector<TileEntityLiftAccess> connected = new Vector<TileEntityLiftAccess>();
 	ForgeDirection sourceSide;
@@ -80,8 +87,10 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 	public int calledYValue = -1;
 	public int calledFloor = 0;
 	public int currentFloor = 0;
-	int liftID = -1;
-	public int side = 2;
+	UUID liftID = null;
+	UUID empty = new UUID(0,0);
+	private byte[] sides = new byte[6];
+	private byte[] sidePages = new byte[6];
 	
 	int tries = 0;
 	
@@ -97,11 +106,20 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 		if(first)
 		{
 			blockID = worldObj.getBlock(xCoord, yCoord, zCoord);
+			metaData = worldObj.getBlockMetadata(xCoord, yCoord, zCoord);
 			here = new Vector3(this);
 			first = false;
 		}
 		
-		if(lift!=null)
+		if(blockID == ThutBlocks.liftRail && lift!=null)
+		{
+			boolean check = (int)lift.posY == yCoord;
+			setCalled(check);
+			time++;
+			return;
+		}
+		
+		if(lift!=null && floor>0)
 		{
 			int calledFloorOld = calledFloor;
 			
@@ -109,128 +127,90 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 			{
 				lift.setCurrentFloor(floor);
 			}
+			if(lift.floors[floor-1]<0)
+			{
+				lift.setFoor(this, floor);
+			}
 			
 			calledFloor = lift.getDestinationFloor();
+			
+			if(calledFloor == floor)
+			{
+				setCalled(true);
+			}
+			else
+			{
+				setCalled(false);
+			}
+			
 			if(calledFloor!=calledFloorOld)
 				worldObj.markBlockForUpdate(xCoord, yCoord, zCoord);
 			currentFloor = lift.getCurrentFloor();
 			
 		}
-		if(liftID>0&&lift==null)
+		if(liftID!=null && !liftID.equals(empty) &&lift==null)
 		{
-			lift = EntityLift.lifts.get(liftID);
+			lift = EntityLift.getLiftFromUUID(liftID);
+			if(lift==null)
+				liftID = empty;
 		}
-		
-		if(blockID == ThutBlocks.liftRail&&time%10==0)
+		if(getRoot().floor!=floor)
 		{
-			if(rootNode==null)
+			this.floor = getRoot().floor;
+			this.lift = getRoot().lift;
+			markDirty();
+			updateBlock();
+		}
+		if(floor>0 && (lift==null || lift.isDead))
+		{
+			lift = null;
+			floor = 0;
+		}
+		if(blockID == ThutBlocks.lift && lift==null)
+		{
+			for(ForgeDirection side: VALID_DIRECTIONS)
 			{
-				checkPower();
-			}
-			if(rootNode==this&&time%100==0)
-			{
-				
-			}
-			if(!loaded||listNull||time%1000==0)
-			{
-				list = worldObj.getEntitiesWithinAABB(EntityLift.class, AxisAlignedBB.getBoundingBox(xCoord+0.5-2, 0, zCoord+0.5-2, xCoord+0.5+2, 255, zCoord+0.5+2));
-				loaded = true;
-			}
-			boolean check = false;
-			for(Entity e:list)
-			{
-				if(e!=null)
+				TileEntity t = here.getTileEntity(worldObj, side);
+				Block b = here.getBlock(worldObj, side);
+				if(b == blockID && t instanceof TileEntityLiftAccess)
 				{
-//					((EntityLift)e).source = source;
-					boolean flag = ((EntityLift)e).getDestinationFloor()!=0&&((int)((EntityLift)e).prevFloorY)==yCoord;
-					check  = check || ((int)(e.posY) == yCoord && !flag);
-				}
-				else
-				{
-					listNull = true;
+					TileEntityLiftAccess te = (TileEntityLiftAccess) t;
+					if(te.lift!=null)
+					{
+						lift = te.lift;
+						floor = te.floor;
+						markDirty();
+						updateBlock();
+						break;
+					}
 				}
 			}
-			setCalled(check);
 		}
 		time++;
 	}
 	
 	public void checkPower()
 	{
-//		TileEntity down = here.offset(DOWN).getTileEntity(worldObj);
-//		int id = here.offset(DOWN).getBlockId(worldObj);
-//		if(down==null)
-//		{
-//			boolean found = false;
-//			for(ForgeDirection side: VALID_DIRECTIONS)
-//			{
-//				if(side!=UP&&side!=DOWN)
-//				{
-//					TileEntity te = here.offset(side).getTileEntity(worldObj);
-//					if(te instanceof IElectricityStorage)
-//					{
-//						found = true;
-//						source = (IElectricityStorage)te;
-//						rootNode = this;
-//						sourceSide = side;
-//					}
-//				}
-//			}
-//			if(!found)
-//				clearConnections();
-//			else
-//			{
-//				TileEntity up = here.offset(UP).getTileEntity(worldObj);
-//				if(up!=null&&up instanceof TileEntityLiftAccess)
-//				{
-//					((TileEntityLiftAccess)up).clearConnections();
-//				}
-//			}
-//		}
-//		else if(down instanceof TileEntityLiftAccess)
-//		{
-//			source = ((TileEntityLiftAccess)down).source;
-//			rootNode = ((TileEntityLiftAccess)down).rootNode;
-//		}
+
 	}
 	
 	public void clearConnections()
 	{
-//		if(here!=null)
-//		{
-//			source = null;
-//			rootNode = null;
-//			TileEntity up = here.offset(UP).getTileEntity(worldObj);
-//			if(up!=null&&up instanceof TileEntityLiftAccess)
-//			{
-//				((TileEntityLiftAccess) up).clearConnections();
-//			}
-//		}
+		
 	}
 	
 	public double getEnergy()
 	{
-//		if(source!=null)
-//			return source.getJoules();
-//		else
 			return 0;
 	}
 	
 	public void setEnergy(double energy)
 	{
-//		if(source!=null)
-//		{
-//			source.setJoules(energy);
-//		}
 	}
 	
 	public String connectionInfo()
 	{
 		String ret = "";
-//		if(source!=null)
-//		{
-//			ret = "Energy stored: "+getEnergy();
-//		}
 		return ret;
 	}
 	
@@ -241,8 +221,6 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
     {
         this.tileEntityInvalid = true;
         clearConnections();
-//		GridTileUnloadEvent evt = new GridTileUnloadEvent(this, worldObj, getLocation());
-//		MinecraftForge.EVENT_BUS.post(evt);
     }
     
     /**
@@ -264,13 +242,14 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 		return !(check == null || check.isEmpty());
 	}
 	
-	public synchronized void setFloor(int floor)
+	public void setFloor(int floor)
 	{
 		if(lift!=null&&floor <=64 && floor > 0)
 		{
-			lift.setFoor(this, floor);
-			this.floor = floor;
-			worldObj.markBlockForUpdate(xCoord, yCoord, zCoord);
+			lift.setFoor(getRoot(), floor);
+			getRoot().floor = floor;
+			getRoot().markDirty();
+			getRoot().updateBlock();
 		}
 	}
 	
@@ -284,14 +263,20 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 		   super.writeToNBT(par1);
 		   par1.setInteger("meta", metaData);
 		   par1.setString("block id", blockID.getLocalizedName());
-		   par1.setInteger("side", side);
 		   par1.setInteger("floor", floor);
-		   root.writeToNBT(par1, "root");
+		   par1.setByteArray("sides", sides);
+		   par1.setByteArray("sidePages", sidePages);
+		   if(root!=null)
+			   root.writeToNBT(par1, "root");
 		   if(lift!=null)
 		   {
 			   liftID = lift.id;
 		   }
-		   par1.setInteger("lift", liftID);
+		   if(liftID!=null)
+		   {
+			   par1.setLong("idLess", liftID.getLeastSignificantBits());
+			   par1.setLong("idMost", liftID.getMostSignificantBits());
+		   }
 	   }
 	
 	   public void readFromNBT(NBTTagCompound par1)
@@ -299,31 +284,41 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 	      super.readFromNBT(par1);
 	      metaData = par1.getInteger("meta");
 	      blockID = Block.getBlockFromName(par1.getString("block id"));
-	      side = par1.getInteger("side");
 	      floor = par1.getInteger("floor");
-	      liftID = par1.getInteger("lift");
+	      liftID = new UUID(par1.getLong("idMost"), par1.getLong("idLess"));
+	      root = new Vector3();
 	      root = root.readFromNBT(par1, "root");
-	      if(EntityLift.lifts.containsKey(liftID))
+	      sides = par1.getByteArray("sides");
+	      if(sides.length!=6)
+	    	  sides = new byte[6];
+	      sidePages = par1.getByteArray("sidePages");
+	      if(sidePages.length!=6)
+	    	  sidePages = new byte[6];
+	      if(liftID!=null && worldObj!=null)
 	      {
-	    	  lift = EntityLift.lifts.get(liftID);
+	    	  lift = EntityLift.getLiftFromUUID(liftID);
 	      }
 	   }
 
 	   public void doButtonClick( int side, float hitX, float hitY, float hitZ)
 	   {
+		   if(liftID!=null && !liftID.equals(empty) && lift==null)
+		   {
+			   lift = EntityLift.getLiftFromUUID(liftID);
+		   }
+		   int button = getButtonFromClick(side, hitX, hitY, hitZ);
+
 		   if(!worldObj.isRemote&&lift!=null)
 		   {
-			   if(side == this.side)
+			   if(isSideOn(side))
 			   {
-				   int button = getButtonFromClick(side, hitX, hitY, hitZ);
 				   buttonPress(button);
 				   calledFloor = lift.getDestinationFloor();
-				   worldObj.markBlockForUpdate(xCoord, yCoord, zCoord);
 			   }
 		   }
 	   }
 	   
-	   public synchronized void callYValue(int yValue)
+	   public void callYValue(int yValue)
 	   {
 		   if(lift!=null)
 		   {
@@ -331,9 +326,9 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 		   }
 	   }
 	   
-	   public synchronized void buttonPress(int button)
+	   public void buttonPress(int button)
 	   {
-		   if(button!=0&&button<=64&&lift!=null&&lift.floors[button-1]!=null)
+		   if(button!=0&&button<=64&&lift!=null&&lift.floors[button-1]>0)
 		   {
 			   if(button==floor)
 				   this.called = true;
@@ -347,56 +342,92 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 		   {
 			   this.called = called;
 			   updateBlock();
-			   notifySurroundings();
+			   for(ForgeDirection side : VALID_DIRECTIONS)
+			   {
+				   if(side!=UP && side!=DOWN)
+				   {
+					   updateBlock(side);
+				   }
+			   }
 		   }
 	   }
 	   
-	   public void setSide(int side)
+	   public void setSide(int side, boolean flag)
 	   {
-		   if(side!=0&&side!=1)
-		   {
-			   this.side = side;
-			   worldObj.markBlockForUpdate(xCoord, yCoord, zCoord);
-		   }
+		   	int state = 1;
+		   	byte byte0 = sides[side];
+		   	
+		   	if(side<2)
+		   		return;
+		   
+	        if (flag)
+	        {
+	            sides[side] = (byte) (byte0 | state);
+	        }
+	        else
+	        {
+	            sides[side] = (byte) (byte0 & -state-1);
+	        }
+	        markDirty();
+	        setBlock(UNKNOWN, blockID, metaData);
+	        updateBlock();
+	   }
+	   
+	   public boolean isSideOn(int side)
+	   {
+		   	int state = 1;
+		   	byte byte0 = sides[side];
+		   	return (byte0  & state)!=0;
+	   }
+
+	   public int getSidePage(int side)
+	   {
+		   return sidePages[side];
+	   }
+
+
+	   public void setSidePage(int side, int page)
+	   {
+		   sidePages[side] = (byte) page;
 	   }
 	   
 	   public int getButtonFromClick(int side, float hitX, float hitY, float hitZ)
 	   {
 		   int ret = 0;
-		   
+		   int page = getSidePage(side);
            switch (side)
            {
 	           case 0:
 	           {
-	        	   return 0;
+	        	   return 0 + 16*page;
 	           }
 	           case 1:
 	           {
-	        	   return 0;
+	        	   return 0 + 16*page;
 	           }
 	           case 2:
 	           {
 	        	   ret = 1+(int)(((1-hitX)*4)%4) + 4*(int)(((1-hitY)*4)%4);
-	        	   return ret;
+	        	   return ret + 16*page;
 	           }
 	           case 3:
 	           {	        	   
 	        	   ret = 1+(int)(((hitX)*4)%4) + 4*(int)(((1-hitY)*4)%4);
-	        	   return ret;
+	        	   return ret + 16*page;
 	           }
 	           case 4:
 	           {
 	        	   ret =1+4*(int)(((1-hitY)*4)%4) + (int)(((hitZ)*4)%4);
-	        	   return ret;
+	        	   return ret + 16*page;
 	           }
 	           case 5:
 	           {
 	        	   ret = 1+4*(int)(((1-hitY)*4)%4) + (int)(((1-hitZ)*4)%4);
-	        	   return ret;
+	        	   return ret + 16*page;
 	           }
                default:
                {
-            	   return 0;
+            	   return 0 + 16*page;
                }
            
            }
@@ -436,11 +467,6 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 	    	else
 	    		return 0;
 	    }
-	    
-	    public ForgeDirection getFacing()
-	    {
-	    	return ForgeDirection.getOrientation(side);
-	    }
 
 	    public Block getBlock(ForgeDirection side)
 	    {
@@ -471,133 +497,32 @@ public class TileEntityLiftAccess extends TileEntity// implements IPeripheral//,
 	    {
 	    	worldObj.setBlock(xCoord+side.offsetX, yCoord+side.offsetY, zCoord+side.offsetZ, id, meta, 3);
 	    }
-
-	    //////////////////////////////////////////////////////////ComputerCraft Stuff/////////////////////////////////////////////////////////////////
-//		@Override
-//		public String getType() {
-//			if(blockID==Blocks.lift.blockID&&getBlockMetadata()==1)
-//				return "LiftController";
-//			return null;
-//		}
-//		
-//		public String[] names = 
-//			{
-//				"call",
-//				"goto",
-//				"setFloor",
-//			};
-//
-//		@Override
-//		public String[] getMethodNames() {
-//			return names;
-//		}
-//
-//		@Override
-//		public Object[] callMethod( IComputerAccess computer, ILuaContext context, int method, Object[] arguments ) throws Exception {
-//			
-//			
-//			if(arguments.length>0)
-//			{
-//				int num = 0;
-//						
-//				if(arguments[0] instanceof Double)
-//				{
-//					num = ((Double)arguments[0]).intValue();
-//				}
-//				if(arguments[0] instanceof String)
-//				{
-//					num = Integer.parseInt((String)arguments[0]);
-//				}
-//				
-//				if(num!=0)
-//				{
-//					if(method==0)
-//					{
-//						buttonPress(num);
-//					}
-//					if(method==1)
-//					{
-//						callYValue(num);
-//					}
-//					if(method==2)
-//					{
-//						setFloor(num);
-//					}
-//				}
-//			}
-//			
-//			
-//			return null;
-//		}
-//
-//		@Override
-//		public boolean canAttachToSide(int side) {
-//			if(blockID==Blocks.lift.blockID&&getBlockMetadata()==1)
-//				return side!=this.side;
-//			return false;
-//		}
-//
-//		@Override
-//		public void attach(IComputerAccess computer) {
-//			// TODO Auto-generated method stub
-//		}
-//
-//		@Override
-//		public void detach(IComputerAccess computer) {
-//			// TODO Auto-generated method stub
-//			
-//		}
-//
-//	    IGridInterface igi;
-//	    boolean hasPower;
-//
-//		@Override
-//		public WorldCoord getLocation() {
-//			return new WorldCoord( xCoord, yCoord, zCoord );
-//		}
-//
-//		@Override
-//		public boolean isValid() {
-//			return true;
-//		}
-//
-//		@Override
-//		public void setPowerStatus(boolean hasPower) {
-//			this.hasPower = hasPower;
-//		}
-//
-//		@Override
-//		public boolean isPowered() {
-//			return hasPower;
-//		}
-//
-//		@Override
-//		public IGridInterface getGrid() {
-//			return igi;
-//		}
-//
-//		@Override
-//		public void setGrid(IGridInterface gi) {
-//			igi = gi;
-//		}
-//
-//		@Override
-//		public World getWorld() {
-//			return worldObj;
-//		}
-//
-//		@Override
-//		public boolean canConnect(ForgeDirection dir) {
-//			if(blockID == BlockLiftRail.staticBlock.blockID)
-//				return true;
-//			else
-//				return dir != ForgeDirection.getOrientation(side);
-//		}
-//
-//		@Override
-//		public float getPowerDrainPerTick() {
-//			return 0.0625F;
-//		}
-
+	    
+	    public void setRoot(TileEntityLiftAccess root)
+	    {
+	    	this.rootNode = root;
+	    }
+	    
+	    public TileEntityLiftAccess getRoot()
+	    {
+			if(here==null||here.isEmpty())
+			{
+				here = new Vector3(this);
+			}
+			
+			if(rootNode!=null)
+				return rootNode;
+			
+			Block b = here.getBlock(worldObj, DOWN);
+			if(b==blockID)
+			{
+				TileEntityLiftAccess te = (TileEntityLiftAccess) here.getTileEntity(worldObj, DOWN);
+				if(te!=null)
+				{
+					return rootNode = te.getRoot();
+				}
+			}
+			return rootNode = this;
+	    }
 }
 

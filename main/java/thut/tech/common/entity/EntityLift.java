@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import thut.api.ThutBlocks;
@@ -47,15 +48,9 @@ import cpw.mods.fml.common.registry.IEntityAdditionalSpawnData;
 
 public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpawnData, IMultiBox
 {
-
-	//TODO remove this
-	TileEntity test = new TileEntityHopper();
-	
 	public double size = 1;
 	public double speedUp = ConfigHandler.LiftSpeedUp;
 	public double speedDown = -ConfigHandler.LiftSpeedDown;
-	public double NOPASSENGERSPEEDDOWN = -ConfigHandler.LiftSpeedDown;
-	public double PASSENDERSPEEDDOWN = -ConfigHandler.LiftSpeedDownOccupied;
 	public static int ACCELERATIONTICKS = 20;
 	public double acceleration = 0.05;
 	public boolean up = true;
@@ -68,34 +63,21 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 	int passengertime = 10;
 	boolean first = true;
 	Random r = new Random();
-//	public IElectricityStorage source;
-	
-	public double storedEnergy = 0;
-	
-	public static double ENERGYCOST = 0;
-	
-	public boolean xAxis = false;
-	
-	private double destinationY = 0;
+	public UUID id = UUID.randomUUID();
+	private static HashMap<UUID, EntityLift> lifts = new HashMap();
 	
 	public double prevFloorY = 0;
 	public double prevFloor = 0;
 	
 	public boolean called = false;
 	TileEntityLiftAccess current;
-	public int id;
-	
-	public static ConcurrentHashMap<Integer, EntityLift> lifts = new ConcurrentHashMap<Integer, EntityLift>();
-	public static int MAXID = 0;
 	
 	Matrix3 mainBox = new Matrix3();
 	
 	public ConcurrentHashMap<String, Matrix3> boxes = new ConcurrentHashMap<String, Matrix3>();
 	public ConcurrentHashMap<String, Vector3> offsets = new ConcurrentHashMap<String, Vector3>();
 	
-	public TileEntityLiftAccess[][] floors = new TileEntityLiftAccess[64][4];
-	
-	public int[][][]floorArray = new int[64][4][3];
+	public int[] floors = new int[64];
 
 	Matrix3 base = new Matrix3();
 	Matrix3 top = new Matrix3();
@@ -107,6 +89,10 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 		this.ignoreFrustumCheck = true;
 		this.hurtResistantTime =0;
 		this.isImmuneToFire = true;
+		for(int i = 0; i<64; i++)
+		{
+			floors[i] = -1;
+		}
 	}
 	
 	public boolean canRenderOnFire()
@@ -132,10 +118,9 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 		this(world);
 		this.setPosition(x, y, z);
 		r.setSeed(100);
-		this.id = MAXID++;//r.nextInt((int)Math.abs(x)+1)+r.nextInt((int)Math.abs(y)+1)+r.nextInt((int)Math.abs(z)+1);
-		lifts.put(id, this);
 		this.size = Math.max(size, 1);
 		this.setSize((float)this.size, 1f);
+		lifts.put(id, this);
 	}
 	
 	@Override
@@ -157,25 +142,13 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 		if(!checkBlocks(0))
 			toMoveY=false;
 		
+		toMoveY = called = getDestY()>0;
+		up = getDestY() > posY;
+		
 		accelerate();
 		if(toMoveY)
 		{
 			doMotion();
-		}
-		else
-		{
-			setPosition(posX, called&&Math.abs(posY-destinationY)<0.5?destinationY:Math.floor(posY), posZ);
-			called = false;
-			prevFloor = getDestinationFloor();
-			prevFloorY = destinationY;
-			destinationY = -1;
-			setDestinationFloor(0);
-			if(current!=null)
-			{
-				current.setCalled(false);
-				worldObj.scheduleBlockUpdate(current.xCoord, current.yCoord, current.zCoord, current.getBlockType(), 5);
-				current = null;
-			}
 		}
 		
 		checkCollision();
@@ -202,55 +175,16 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 		{
 			return;
 		}
-		
-		if(!worldObj.isRemote&&floorArray[floor-1]!=null)
+		if(floors[floor-1]>0)
 		{
-			int i = -1;
-			for(int j = 0; j<4;j++)
-			{
-				if(floorArray[floor-1][j]!=null&&floorArray[floor-1][j].length==3)
-				{
-					int x = floorArray[floor-1][j][0];
-					int y = floorArray[floor-1][j][1];
-					int z = floorArray[floor-1][j][2];
-					if(worldObj.getTileEntity(x, y, z)!=null && worldObj.getTileEntity(x, y, z) instanceof TileEntityLiftAccess)
-					{
-						prevFloorY = posY;
-						destinationY = worldObj.getTileEntity(x, y, z).yCoord - 2;
-						current = (TileEntityLiftAccess)worldObj.getTileEntity(x, y, z);
-						current.called = true;
-						worldObj.scheduleBlockUpdate(x, y, z, worldObj.getBlock(x, y, z), 5);
-						setDestinationFloor(floor);
-						
-						callYValue((int) destinationY);
-						
-						return;
-					}
-				}
-			}
+			callYValue(floors[floor-1]);
+			setDestinationFloor(floor);
 		}
-	}
-	
-	public void callClient(double destinationY)
-	{
-		prevFloorY = posY;
-		this.destinationY = destinationY;
-		up = destinationY > posY;
-		toMoveY = true;
-		called = true;
 	}
 	
 	public void callYValue(int yValue)
 	{
-		if(!worldObj.isRemote&&consumePower())
-		{
-			destinationY = yValue;
-			up = destinationY > posY;
-			toMoveY = true;
-			called = true;
-			PacketPipeline.packetPipeline.sendToAllAround(PacketPipeline.getLiftPacket(this, 3, destinationY, 0), new TargetPoint(this.dimension, posX, posY, posZ, 100));
-			
-		}
+		setDestY(yValue);
 	}
 	
 	public void accelerate()
@@ -293,11 +227,11 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 				}
 				else
 				{
-					setPosition(posX, called&&Math.abs(posY-destinationY)<0.5?destinationY:Math.floor(posY), posZ);
+					setPosition(posX, Math.abs(posY-getDestY())<0.5?getDestY():Math.floor(posY), posZ);
 					called = false;
 					prevFloor = getDestinationFloor();
-					prevFloorY = destinationY;
-					destinationY = -1;
+					prevFloorY = getDestY();
+					setDestY(-1);
 					setDestinationFloor(0);
 					if(current!=null)
 					{
@@ -334,12 +268,11 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 				}
 				else
 				{
-			//		System.out.println("blocked down");
-					setPosition(posX, called&&Math.abs(posY-destinationY)<0.5?destinationY:Math.floor(posY), posZ);
+					setPosition(posX, Math.abs(posY-getDestY())<0.5?getDestY():Math.floor(posY), posZ);
 					called = false;
 					prevFloor = getDestinationFloor();
-					prevFloorY = destinationY;
-					destinationY = -1;
+					prevFloorY = getDestY();
+					setDestY(-1);
 					setDestinationFloor(0);
 					if(current!=null)
 					{
@@ -365,11 +298,11 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 		
 		if(called)
 		{
-			if(dir > 0 && thisloc.y > destinationY)
+			if(dir > 0 && thisloc.y > getDestY())
 			{
 				return false;
 			}
-			if(dir < 0 && thisloc.y < destinationY)
+			if(dir < 0 && thisloc.y < getDestY())
 			{
 				return false;
 			}
@@ -429,8 +362,21 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 		
 		for(int i = 0; i<5; i++)
 		{
-			ret = ret&&worldObj.getBlock((int)Math.floor(posX)+sides[axis?2:0][0],(int)Math.floor(posY+dir+i),(int)Math.floor(posZ)+sides[axis?2:0][1])==liftRail;
-			ret = ret&&worldObj.getBlock((int)Math.floor(posX)+sides[axis?3:1][0],(int)Math.floor(posY+dir+i),(int)Math.floor(posZ)+sides[axis?3:1][1])==liftRail;
+			Vector3 a = new Vector3((int)Math.floor(posX)+sides[axis?2:0][0],(int)Math.floor(posY+dir+i),(int)Math.floor(posZ)+sides[axis?2:0][1]);
+			Vector3 b = new Vector3((int)Math.floor(posX)+sides[axis?3:1][0],(int)Math.floor(posY+dir+i),(int)Math.floor(posZ)+sides[axis?3:1][1]);
+			
+			ret = ret&&a.getBlock(worldObj)==liftRail;
+			ret = ret&&b.getBlock(worldObj)==liftRail;
+			
+			if(ret)
+			{
+				TileEntityLiftAccess teA = (TileEntityLiftAccess) a.getTileEntity(worldObj);
+				TileEntityLiftAccess teB = (TileEntityLiftAccess) b.getTileEntity(worldObj);
+				if(teA.lift==null)
+					teA.setLift(this);
+				if(teB.lift==null)
+					teB.setLift(this);
+			}
 		}
 		
 		if((!ret&&dir==0))
@@ -450,7 +396,7 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 	{
 		boolean power = false;
 		int sizeFactor = size == 1?4:size==3?23:55;
-		double energyCost = (destinationY - posY)*ENERGYCOST*sizeFactor;
+		double energyCost = 0;//(destinationY - posY)*ENERGYCOST*sizeFactor;
 		if(energyCost<=0)
 			return true;
 		if(!power)
@@ -537,14 +483,14 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
     public boolean interactFirst(EntityPlayer player)
     {
     	ItemStack item = player.getHeldItem();
-    	System.out.println("interact");
+    	//System.out.println(FMLCommonHandler.instance().getEffectiveSide()+" "+getCurrentFloor());
     	if(player.isSneaking()&&item!=null&&item.getItem() instanceof ItemLinker)
     	{
            	if(item.stackTagCompound == null)
         	{
         		item.setTagCompound(new NBTTagCompound() );
         	}
-           	item.stackTagCompound.setInteger("lift", id);
+           	item.stackTagCompound.setString("lift", id.toString());
            	if(worldObj.isRemote)
            	player.addChatMessage(new ChatComponentText("lift set"));
            	return true;
@@ -592,100 +538,81 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 	@Override
 	public void writeSpawnData(ByteBuf data) {
 		data.writeDouble(size);
-		data.writeInt(id);
+		data.writeLong(id.getMostSignificantBits());
+		data.writeLong(id.getLeastSignificantBits());
+		for(int i = 0; i<64; i++)
+		{
+			data.writeInt(floors[i]);
+		}
 	}
 
 	@Override
 	public void readSpawnData(ByteBuf data) {
 		size = data.readDouble();
-		this.setSize((float)this.size, 1f);
-		id = data.readInt();
+		id = new UUID(data.readLong(), data.readLong());
+		for(int i = 0; i<64; i++)
+		{
+			floors[i] = data.readInt();
+		}
 		lifts.put(id, this);
+		this.setSize((float)this.size, 1f);
 	}
 
 	public void setFoor(TileEntityLiftAccess te, int floor)
 	{
 		if(te.floor == 0)
 		{
-			int j = 0;
-			for(int i = 0; i<4; i++)
-			{
-				if(floors[floor-1][i]==null)
-				{
-					j = i;
-					break;
-				}
-			}
-			floors[floor-1][j]=te;
-			floorArray[floor-1][j] = new int[]{te.xCoord,te.yCoord,te.zCoord};
+			floors[floor-1] = te.yCoord-2;
 		}
 		else if(te.floor!=0)
 		{
-			for(int i = 0; i<4; i++)
-			{
-				if(floors[te.floor-1][i] == te)
-				{
-					floors[te.floor-1][i] = null;
-				}
-			}
-			int j = 0;
-			for(int i = 0; i<4; i++)
-			{
-				if(floors[floor-1][i]==null)
-				{
-					j = i;
-					break;
-				}
-			}
-			floors[floor-1][j]=te;
-			floorArray[floor-1][j] = new int[]{te.xCoord,te.yCoord,te.zCoord};
+			floors[te.floor-1] = -1;
+			floors[floor-1] = te.yCoord -2;
 		}
 	}
 
 	@Override
 	public void readEntityFromNBT(NBTTagCompound nbt) {
+		super.readEntityFromNBT(nbt);
 		axis = nbt.getBoolean("axis");
-		id = nbt.getInteger("cuid");
-		MAXID = nbt.getInteger("MAXID");
 		size = nbt.getDouble("size");
+		id = new UUID(nbt.getLong("higher"), nbt.getLong("lower"));
 		lifts.put(id, this);
 		readList(nbt);
 	}
 
 	@Override
 	public void writeEntityToNBT(NBTTagCompound nbt) {
-//		super.writeEntityToNBT(nbt);
+		super.writeEntityToNBT(nbt);
 		nbt.setBoolean("axis", axis);
-		nbt.setInteger("cuid", id);
-		nbt.setInteger("MAXID", MAXID);
 		nbt.setDouble("size", size);
+		nbt.setLong("lower", id.getLeastSignificantBits());
+		nbt.setLong("higher", id.getMostSignificantBits());
 		writeList(nbt);
 	}
 
 	public void writeList(NBTTagCompound nbt)
 	{
-		for(int i = 0; i<floorArray.length; i++)
+		for(int i = 0; i<64; i++)
 		{
-			for(int j = 0; j<4; j++)
-			{
-				nbt.setIntArray("list"+i+" "+j, floorArray[i][j]);
-			}
+			nbt.setInteger("floors "+i, floors[i]);
 		}
 	}
 	
 	public void readList(NBTTagCompound nbt)
 	{
-		for(int i = 0; i<floorArray.length; i++)
+		for(int i = 0; i<64; i++)
 		{
-			for(int j = 0; j<4; j++)
-			{
-				int[] loc = nbt.getIntArray("list"+i+" "+j);
-			//System.out.println(Arrays.toString(loc));
-				floorArray[i][j] = loc;
-			}
+			floors[i] = nbt.getInteger("floors "+i);
+			if(floors[i] == 0)
+				floors[i] = -1;
 		}
 	}
 	
+	public static EntityLift getLiftFromUUID(UUID uuid)
+	{
+		return lifts.get(uuid);
+	}
 
 	@Override
 	public void setBoxes()
@@ -763,6 +690,7 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 		super.entityInit();
 		this.dataWatcher.addObject(2, Integer.valueOf(0));
 		this.dataWatcher.addObject(3, Integer.valueOf(0));
+		this.dataWatcher.addObject(4, Integer.valueOf(-1));
 	}
 
 	@Override
@@ -810,6 +738,20 @@ public class EntityLift extends EntityLivingBase implements IEntityAdditionalSpa
 	 */
 	public void setCurrentFloor(int currentFloor) {
 		dataWatcher.updateObject(3, Integer.valueOf(currentFloor));
+	}
+
+	/**
+	 * @return the destinationFloor
+	 */
+	public int getDestY() {
+		return dataWatcher.getWatchableObjectInt(4);
+	}
+
+	/**
+	 * @param dest the destinationFloor to set
+	 */
+	public void setDestY(int dest) {
+		dataWatcher.updateObject(4, Integer.valueOf(dest));
 	}
 
 
